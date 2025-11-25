@@ -1,4 +1,7 @@
 import argparse
+import os
+from pathlib import Path
+
 
 def parse_args():
     # fmt: off
@@ -6,7 +9,7 @@ def parse_args():
 
     parser.add_argument("--exp-name",
                         type=str,
-                        default=os.path.basename(__file__).rstrip(".py"),
+                        default=Path(os.path.abspath(__file__)).parts[-2],
                         help="the name of this experiment")
 
     parser.add_argument("--gym-id",
@@ -59,7 +62,7 @@ def parse_args():
 
     parser.add_argument("--wandb-entity",
                         type=str,
-                        default=None,
+                        default="mspcvsp94",
                         help="the entity (team) of wandb's project")
 
     parser.add_argument("--capture-video",
