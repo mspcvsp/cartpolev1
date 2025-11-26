@@ -5,6 +5,9 @@ import random
 import numpy as np
 import torch
 import time
+import wandb
+from torch.utils.tensorboard import SummaryWriter
+
 
 def parse_args():
     # fmt: off
@@ -52,7 +55,7 @@ def parse_args():
 
     parser.add_argument("--track",
                         type=lambda x: bool(strtobool(x)),
-                        default=True,
+                        default=False,
                         nargs="?",
                         const=False,
                         help="if toggled, this experiment will be" +\
@@ -167,7 +170,7 @@ def parse_args():
 
     return parser.parse_args()
 
-def initialize():
+def initialize(**kwargs):
 
     args = parse_args()
 
@@ -178,13 +181,37 @@ def initialize():
         torch.device("cuda" if torch.cuda.is_available()
                      and args.cuda else "cpu")
 
+    seconds_since_epoch =\
+        kwargs.get("seconds_since_epoch",
+                   int(time.time()))
+
     args.run_name =\
-        f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+        f"{args.gym_id}__{args.exp_name}__{args.seed}__{seconds_since_epoch}"
+
+    if args.track:
+
+        wandb.init(
+            project=args.wandb_project_name,
+            entity=args.wandb_entity,
+            sync_tensorboard=True,
+            config=vars(args),
+            name=args.run_name,
+            monitor_gym=True,
+            save_code=True,
+        )
+    
+    writer = SummaryWriter(f"runs/{args.run_name}")
+
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s" %
+        ("\n".join([f"|{key}|{value}|"
+                    for key, value in vars(args).items()])),
+    )
 
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
-    return args
-
+    return args, writer
