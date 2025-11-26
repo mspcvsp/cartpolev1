@@ -89,7 +89,7 @@ def parse_args():
 
     parser.add_argument("--num-steps",
                         type=int,
-                        default=128,
+                        default=500,
                         help="the number of steps to run in each " +\
                         "environment per policy rollout")
 
