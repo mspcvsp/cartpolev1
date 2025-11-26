@@ -209,9 +209,17 @@ def initialize(**kwargs):
                     for key, value in vars(args).items()])),
     )
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     return args, writer
+
+
+def initialize_rngs(args):
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    seed_seq = SeedSequence(args.seed)
+
+    return Generator(MT19937(seed_seq))
