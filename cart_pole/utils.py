@@ -3,13 +3,14 @@ import os
 from pathlib import Path
 import random
 import numpy as np
+from numpy.random import Generator, MT19937, SeedSequence
 import torch
 import time
 import wandb
 from torch.utils.tensorboard import SummaryWriter
 
 
-def parse_args():
+def parse_args(**kwargs):
     # fmt: off
     parser = argparse.ArgumentParser()
 
@@ -168,11 +169,9 @@ def parse_args():
                         default=None,
                         help="the target KL divergence threshold")
 
-    return parser.parse_args()
+    args = parser.parse_args()
 
-def initialize(**kwargs):
-
-    args = parse_args()
+    torch.backends.cudnn.deterministic = args.torch_deterministic
 
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
@@ -187,6 +186,10 @@ def initialize(**kwargs):
 
     args.run_name =\
         f"{args.gym_id}__{args.exp_name}__{args.seed}__{seconds_since_epoch}"
+
+    return args
+
+def init_tracking(args):
 
     if args.track:
 
@@ -209,12 +212,9 @@ def initialize(**kwargs):
                     for key, value in vars(args).items()])),
     )
 
-    torch.backends.cudnn.deterministic = args.torch_deterministic
+    return writer
 
-    return args, writer
-
-
-def initialize_rngs(args):
+def init_rngs(args):
 
     random.seed(args.seed)
     np.random.seed(args.seed)
