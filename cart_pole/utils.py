@@ -2,9 +2,9 @@ import argparse
 import os
 from pathlib import Path
 import random
-import numpy
+import numpy as np
 import torch
-
+import time
 
 def parse_args():
     # fmt: off
@@ -177,8 +177,14 @@ def initialize():
     args.device =\
         torch.device("cuda" if torch.cuda.is_available()
                      and args.cuda else "cpu")
-    
+
+    args.run_name =\
+        f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
+
+    return args
+

@@ -23,7 +23,7 @@ def make_sync_vector_env(args):
             [make_env(args.gym_id,
                       i,
                       args.capture_video,
-                      run_name) for i in range(args.num_envs)]
+                      args.run_name) for i in range(args.num_envs)]
         )
     
     assert isinstance(envs.single_action_space, gym.spaces.Discrete),\
