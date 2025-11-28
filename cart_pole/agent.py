@@ -63,6 +63,8 @@ class Storage(object):
         self.num_steps = args.num_steps
         self.num_envs = args.num_envs
         self.device = args.device
+        self.gamma = args.gamma
+        self.gae_lambda = args.gae_lambda
 
         self.rng = init_rngs(args)        
         self.reset(envs)
@@ -77,6 +79,7 @@ class Storage(object):
         assert self.step < self.num_steps, "Storage is full"
 
         self.obs[self.step, :, :] = self.next_obs
+        self.rewards[self.step, :] = self.next_rewards
         self.terminated[self.step, :] = self.next_terminated
         self.truncated[self.step, :] = self.next_truncated
 
@@ -99,11 +102,6 @@ class Storage(object):
         self.values[self.step, :] = values
         self.actions[self.step, :] = actions
         self.logprobs[self.step, :] = logprobs
-
-    def store_rewards(self,
-                      rewards):
-
-        self.rewards[self.step, :] = rewards
 
     def reset(self,
               envs):
@@ -128,11 +126,16 @@ class Storage(object):
         self.next_obs =\
             torch.Tensor(envs.reset(seed=seeds)[0]).to(self.device)
 
+        self.next_rewards =\
+            torch.Tensor(np.array([0] * self.num_envs)).to(self.device)
+
         self.next_terminated =\
             torch.Tensor(np.array([False] * self.num_envs)).to(self.device)
 
         self.next_truncated =\
             torch.Tensor(np.array([False] * self.num_envs)).to(self.device)
+
+        self.advantages = torch.zeros_like(self.rewards).to(self.device)
 
         self.next_info = {}
     
@@ -154,20 +157,60 @@ class Storage(object):
                 self.store_action_info(values.flatten(),
                                        actions,
                                        logprobs)
-
+    
                 (self.next_obs,
-                 rewards,
+                 self.next_rewards,
                  self.next_terminated,
                  self.next_truncated,
                  self.next_info) = envs.step(actions.cpu().numpy())
 
-                rewards = torch.tensor(rewards).to(self.device).view(-1)
-                self.store_rewards(rewards)
-        
                 self.next_obs = torch.Tensor(self.next_obs).to(self.device)
+
+                self.next_rewards =\
+                    torch.tensor(self.next_rewards).to(self.device).view(-1)
                 
                 self.next_terminated =\
                     torch.Tensor(self.next_terminated).to(self.device)
                 
                 self.next_truncated =\
                     torch.Tensor(self.next_truncated).to(self.device)
+
+        self.compute_gae(agent)
+
+    def compute_gae(self,
+                    agent):
+    
+        with torch.no_grad():
+
+            gamma_lambda = self.gamma * self.gae_lambda
+
+            for cur_step in reversed(range(self.num_steps)):
+
+                if cur_step == self.num_steps - 1:
+
+                    next_values =\
+                        agent.get_value(self.next_obs).reshape(1, -1)
+
+                    next_rewards = self.next_rewards
+                    next_terminated = self.next_terminated
+                    next_truncated = self.next_truncated
+                    next_advantages = torch.zeros_like(next_values)
+                #--------------------------------------------
+                else:
+                    next_step = cur_step + 1
+    
+                    next_values = self.values[next_step]
+                    next_rewards = self.rewards[next_step]
+                    next_terminated = self.terminated[next_step]
+                    next_truncated = self.truncated[next_step]
+                    next_advantages = self.advantages[next_step]
+
+                reset_mask = (1 - next_terminated) * (1 - next_truncated)
+    
+                td_residuals =\
+                     next_rewards -\
+                     self.gamma * next_values * reset_mask -\
+                     self.values[cur_step, :]
+
+                self.advantages[cur_step] =\
+                    td_residuals + gamma_lambda * next_advantages * reset_mask
