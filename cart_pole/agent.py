@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
 from .utils import init_rngs
+import pdb
 
 class Agent(nn.Module):
 
@@ -33,6 +34,7 @@ class Agent(nn.Module):
         return self.critic(x)
 
     def get_action_and_value(self, x, action=None):
+
         logits = self.actor(x)
         probs = Categorical(logits=logits)
         if action is None:
@@ -68,40 +70,6 @@ class Storage(object):
 
         self.rng = init_rngs(args)        
         self.reset(envs)
-
-    def store_state_info(self):
-
-        if self.step is None:
-            self.step = 0
-        else:
-            self.step += 1
-
-        assert self.step < self.num_steps, "Storage is full"
-
-        self.obs[self.step, :, :] = self.next_obs
-        self.rewards[self.step, :] = self.next_rewards
-        self.terminated[self.step, :] = self.next_terminated
-        self.truncated[self.step, :] = self.next_truncated
-
-        if len(self.next_info) > 0:
-
-            key0 = "episode"
-            epr_mask = self.next_info[key0]["_r"]
-
-            epr_values =\
-                self.next_info[key0]["r"][epr_mask].astype('float32')
-            
-            self.episodic_rewards[self.step, epr_mask] =\
-                torch.tensor(epr_values).to(self.device)
-
-    def store_action_info(self,
-                          values,
-                          actions,
-                          logprobs):
-
-        self.values[self.step, :] = values
-        self.actions[self.step, :] = actions
-        self.logprobs[self.step, :] = logprobs
 
     def reset(self,
               envs):
@@ -139,6 +107,40 @@ class Storage(object):
 
         self.next_info = {}
     
+    def store_state_info(self):
+
+        if self.step is None:
+            self.step = 0
+        else:
+            self.step += 1
+
+        assert self.step < self.num_steps, "Storage is full"
+
+        self.obs[self.step, :, :] = self.next_obs.clone()
+        self.rewards[self.step, :] = self.next_rewards.clone()
+        self.terminated[self.step, :] = self.next_terminated.clone()
+        self.truncated[self.step, :] = self.next_truncated.clone()
+
+        if len(self.next_info) > 0:
+
+            key0 = "episode"
+            epr_mask = self.next_info[key0]["_r"]
+
+            epr_values =\
+                self.next_info[key0]["r"][epr_mask].astype('float32')
+            
+            self.episodic_rewards[self.step, epr_mask] =\
+                torch.tensor(epr_values).to(self.device)
+
+    def store_action_info(self,
+                          values,
+                          actions,
+                          logprobs):
+
+        self.values[self.step, :] = values
+        self.actions[self.step, :] = actions
+        self.logprobs[self.step, :] = logprobs
+
     def rollout(self,
                 agent,
                 envs):
