@@ -2,13 +2,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
+from .utils import init_rngs
 
 class Agent(nn.Module):
 
     def __init__(self,
                  envs):
 
-        super(Agent, self).__init__()
+        super().__init__()
 
         obs_space_shape = envs.single_observation_space.shape
 
@@ -63,13 +64,10 @@ class Storage(object):
         self.num_envs = args.num_envs
         self.device = args.device
 
+        self.rng = init_rngs(args)        
         self.reset(envs)
 
-    def store_state_info(self,
-                         obs,
-                         terminated,
-                         truncated,
-                         info):
+    def store_state_info(self):
 
         if self.step is None:
             self.step = 0
@@ -78,20 +76,20 @@ class Storage(object):
 
         assert self.step < self.num_steps, "Storage is full"
 
-        self.obs[self.step, :, :] = obs
-        self.terminated[self.step, :] = terminated
-        self.truncated[self.step, :] = truncated
+        self.obs[self.step, :, :] = self.next_obs
+        self.terminated[self.step, :] = self.next_terminated
+        self.truncated[self.step, :] = self.next_truncated
 
-        if len(info) > 0:
+        if len(self.next_info) > 0:
 
             key0 = "episode"
-            epr_mask = info[key0]["_r"]
-            epr_values = info[key0]["r"][epr_mask].astype('float32')
+            epr_mask = self.next_info[key0]["_r"]
+
+            epr_values =\
+                self.next_info[key0]["r"][epr_mask].astype('float32')
             
             self.episodic_rewards[self.step, epr_mask] =\
                 torch.tensor(epr_values).to(self.device)
-
-            pdb.set_trace()
 
     def store_action_info(self,
                           values,
@@ -123,3 +121,53 @@ class Storage(object):
         self.rewards = torch.zeros(shape2d).to(self.device)
         self.values = torch.zeros(shape2d).to(self.device)
         self.episodic_rewards = torch.zeros(shape2d).to(self.device)
+
+        seeds = [int(self.rng.uniform(0, 1E9))
+                 for _ in range(self.num_envs)]
+
+        self.next_obs =\
+            torch.Tensor(envs.reset(seed=seeds)[0]).to(self.device)
+
+        self.next_terminated =\
+            torch.Tensor(np.array([False] * self.num_envs)).to(self.device)
+
+        self.next_truncated =\
+            torch.Tensor(np.array([False] * self.num_envs)).to(self.device)
+
+        self.next_info = {}
+    
+    def rollout(self,
+                agent,
+                envs):
+
+        self.reset(envs)
+
+        for _ in range(self.num_steps):
+
+            self.store_state_info()
+
+            with torch.no_grad():
+
+                actions, logprobs, _, values =\
+                    agent.get_action_and_value(self.next_obs)
+
+                self.store_action_info(values.flatten(),
+                                       actions,
+                                       logprobs)
+
+                (self.next_obs,
+                 rewards,
+                 self.next_terminated,
+                 self.next_truncated,
+                 self.next_info) = envs.step(actions.cpu().numpy())
+
+                rewards = torch.tensor(rewards).to(self.device).view(-1)
+                self.store_rewards(rewards)
+        
+                self.next_obs = torch.Tensor(self.next_obs).to(self.device)
+                
+                self.next_terminated =\
+                    torch.Tensor(self.next_terminated).to(self.device)
+                
+                self.next_truncated =\
+                    torch.Tensor(self.next_truncated).to(self.device)
