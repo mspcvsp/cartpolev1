@@ -1,9 +1,67 @@
+import copy
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
 from .utils import init_rngs
-import pdb
+
+
+class MinMaxScaler(object):
+
+    def __init__(self,
+                 args,
+                 envs):
+
+        obs_space = copy.deepcopy(envs.single_observation_space)
+
+        self.is_bounded =\
+            np.logical_and(obs_space.bounded_above,
+                           obs_space.bounded_below)
+
+        self.is_unbounded =\
+            np.logical_not(self.is_bounded)
+
+        self.is_bounded = torch.tensor(self.is_bounded)
+        self.is_unbounded = torch.tensor(self.is_unbounded)
+        
+        self.low = torch.tensor(obs_space.low)
+        self.inv_range = torch.ones_like(self.low)
+
+        self.inv_range[self.is_bounded] =\
+            1 / (torch.tensor(obs_space.high[self.is_bounded]) -\
+                 self.low[self.is_bounded])
+
+        self.inv_range = self.inv_range.to(args.device)
+        self.low = self.low.to(args.device)
+
+    def __call__(self,
+                 x):
+
+        scaled_x = x.clone()
+        
+        target_shape = torch.tensor(scaled_x.shape)
+        expand_shape = [1] *(len(target_shape) - 1) + [-1]
+        
+        low_nd = self.low.view(*expand_shape).expand(*target_shape)
+
+        inv_range_nd =\
+            self.inv_range.view(*expand_shape).expand(*target_shape)
+        
+        is_unbounded_nd =\
+            self.is_unbounded.view(*expand_shape).expand(*target_shape)
+        
+        is_bounded_nd =\
+            self.is_bounded.view(*expand_shape).expand(*target_shape)
+
+        scaled_x[is_bounded_nd] =\
+            (scaled_x[is_bounded_nd] - low_nd[is_bounded_nd]) *\
+            inv_range_nd[is_bounded_nd]
+        
+        scaled_x[is_unbounded_nd] =\
+            scaled_x[is_unbounded_nd] / (1 + scaled_x[is_unbounded_nd].abs())
+
+        return scaled_x
+
 
 class Agent(nn.Module):
 
@@ -56,7 +114,7 @@ def layer_init(layer,
     return layer
 
 
-class Storage(object):
+class PPOTrainer(object):
 
     def __init__(self,
                  args,
@@ -69,6 +127,10 @@ class Storage(object):
         self.gae_lambda = args.gae_lambda
 
         self.rng = init_rngs(args)        
+
+        self.obs_scaler = MinMaxScaler(args,
+                                       envs)
+
         self.reset(envs)
 
     def reset(self,
@@ -93,6 +155,8 @@ class Storage(object):
 
         self.next_obs =\
             torch.Tensor(envs.reset(seed=seeds)[0]).to(self.device)
+
+        self.next_obs = self.obs_scaler(self.next_obs)
 
         self.next_rewards =\
             torch.Tensor(np.array([0] * self.num_envs)).to(self.device)
@@ -167,6 +231,7 @@ class Storage(object):
                  self.next_info) = envs.step(actions.cpu().numpy())
 
                 self.next_obs = torch.Tensor(self.next_obs).to(self.device)
+                self.next_obs = self.obs_scaler(self.next_obs)
 
                 self.next_rewards =\
                     torch.tensor(self.next_rewards).to(self.device).view(-1)
