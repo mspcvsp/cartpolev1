@@ -1,3 +1,11 @@
+"""
+"The 37 Implementation Details of Proximal Policy Optimization" 25 March 2022
+Huang, Shengyi; Dossa, Rousslan Fernand Julien; Raffin, Antonin; Kanervisto,
+Anssi; Wang, Weixun
+
+https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+https://github.com/vwxyzjn/ppo-implementation-details
+"""
 import copy
 import numpy as np
 import torch
@@ -131,6 +139,8 @@ class PPOTrainer(object):
         self.obs_scaler = MinMaxScaler(args,
                                        envs)
 
+        self.obs_space_shape = envs.single_observation_space.shape.copy()
+
         self.reset(envs)
 
     def reset(self,
@@ -244,9 +254,20 @@ class PPOTrainer(object):
 
         self.compute_gae(agent)
 
+    def flatten_batch_rollout(self):
+
+        obs_space_shape = trainer.obs.shape[-1]
+
+        self.obs = self.obs.reshape((-1,) + obs_space_shape)
+        self.logprobs = logprobs.reshape(-1)
+
     def compute_gae(self,
                     agent):
-    
+        """
+        - https://tianshou.org/en/stable/02_deep_dives/L4_GAE.html
+        - https://notanymike.github.io/GAE/
+        - https://mochan.org/posts/gae/
+        """
         with torch.no_grad():
 
             gamma_lambda = self.gamma * self.gae_lambda
